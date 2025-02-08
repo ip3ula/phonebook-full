@@ -1,6 +1,8 @@
+require('dotenv').config()
 const express = require('express')
 const morgan = require('morgan')
 const cors = require('cors')
+const Person = require("./models/person")
 const app = express()
 app.use(express.json())
 morgan.token('type' , (req) => JSON.stringify(req.body))
@@ -8,77 +10,67 @@ app.use(morgan(':method :status :url  :response-time ms :type'))
 app.use(cors())
 app.use(express.static('dist'))
 // it is a middleWare that tells express to serve static files in dist folder as html, css & javascript
-let persons = [
-    { 
-      "id": "1",
-      "name": "Arto Hellas", 
-      "number": "040-123456"
-    },
-    { 
-      "id": "2",
-      "name": "Ada Lovelace", 
-      "number": "39-44-5323523"
-    },
-    { 
-      "id": "3",
-      "name": "Dan Abramov", 
-      "number": "12-43-234345"
-    },
-    { 
-      "id": "4",
-      "name": "Mary Poppendieck", 
-      "number": "39-23-6423122"
-    }
-]
-const generateId = () => {
-const number =  Math.floor(Math.random() * 100)
-const string = String(number)
-return string;
-}
-app.get('/', (request, response) => {
-  response.send('<h1>Hello World!</h1>')
-})
+
 app.get('/info', (request, response) => {
   const time = new Date()
-  response.send(`<p>Phonebook has info for ${persons.length} people</p><br/>${time}`)
-})
-app.get('/api/persons', (request, response) => {
-  response.json(persons)
-})
-app.get('/api/persons/:id', (request, response) => {
-  const id = request.params.id
-  const person = persons.find(person => person.id === id)
-  person
-  ? response.json(person)
-  : response.status(404).end()
+  Person.find({}).then(data => {
+  response.send(`<p>Phonebook has info for ${data.length} people</p><br/>${time}`)  
+  })
   
 })
-app.delete('/api/persons/:id', (request, response) => {
-  const id = request.params.id
-  persons = persons.filter(person => person.id !== id)
-  response.status(204).end()
+app.get('/api/persons', (request, response, next) => {
+  Person.find({}).then(result => {
+    response.json(result)
+  }).catch(error => next(error))
 })
-app.post('/api/persons', (request, response) => {
+app.get('/api/persons/:id', (request, response, next) => {
+  Person.findById(request.params.id).then(person => {
+    person
+    ? response.json(person)
+    :response.status(404).end()
+  }).catch(error => {
+    next(error)
+  })
+})
+app.delete('/api/persons/:id', (request, response, next) => {
+  const id = request.params.id
+Person.findByIdAndDelete(id).then(result => response.status(204).end()).catch(error => next(error))
+})
+app.post('/api/persons', (request, response, next) => {
+  const body = request.body
+  const person = new Person(
+     {
+    name: body.name,
+    number: body.number,
+  }
+    )
+    body.name === undefined
+    ? response.status(400).json({error: 'content missing'})
+    : person.save().then(savedPerson => response.json(savedPerson)).catch(error => next(error))
+})
+app.put('/api/persons/:id', (request, response, next) => {
   const body = request.body
   const person = {
     name: body.name,
     number: body.number,
-    id: generateId(),
   }
-  if(!body.name){
-    return response.status(400).json({error: 'name missing'})
-  }else if (!body.number) {
-    return response.status(400).json({error: 'number missing'})
-  } else if(persons.find(person => person.name === body.name)){
-    return response.status(404).json({
-      error: `name must be unique`
-    })
-  } else {
-    persons = persons.concat(person)
-    response.json(person)
-  }
+  Person.findByIdAndUpdate(request.params.id, person, { new:true, runValidators: true, context: 'query' }).then(updatedData => {
+    response.json(updatedData)
+  }).catch(error => next(error))
 })
+const errorHandler = (error, request, response, next) => {
+  console.error(error.message)
+  if(error.name === 'CastError'){
+    return response.status(400).json({ error: 'malformed id' })
+  } else if(error.name === 'ValidationError') {
+    response.status(400).json({ error: error.message })
+  }
+  next(error)
+}
+app.use(errorHandler)
 const PORT = process.env.PORT || 3001
 app.listen(PORT, ()=> {
   console.log(`app is runing at ${PORT}`)
 })
+
+  
